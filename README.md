@@ -9,6 +9,8 @@ The project currently implements:
 
 Future milestones will add enqueueing, stats, job claiming, workers, retries, stuck-job recovery, and Kubernetes deployment.
 
+For the local Kubernetes learning setup, see [`k8s/README.md`](k8s/README.md).
+
 ## Requirements
 
 - Go 1.25+
@@ -118,6 +120,7 @@ docker exec "postgres-job-queue" psql -U queue -d queue -c "\d jobs"
 |-- docker-compose.yml             # Local PostgreSQL service
 |-- internal/queue/queue.go         # Database wrapper
 |-- internal/queue/worker.go        # Worker placeholder
+|-- k8s/                            # Kubernetes manifests and notes
 |-- migrations/001_create_jobs.sql  # Queue schema migration
 |-- migrations/migrations.go        # Embedded migration SQL
 |-- milestones.md                   # App learning milestones
@@ -139,9 +142,22 @@ go run ./cmd/queue
 go run ./cmd/queue migrate
 ```
 
-## Next Milestone
+## Next Milestones
 
-Milestone 3 will add commands to insert jobs:
+Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1 and K2 are also complete.
+
+The recommended next path is:
+
+```text
+K3: Container Image
+K4: Postgres In Kubernetes
+K5: Database URL Configuration
+K6: Migration Job
+```
+
+This lets Kubernetes run the app functionality that already exists: `queue migrate`.
+
+After K6, return to app Milestone 3, which will add commands to insert jobs:
 
 ```bash
 queue enqueue '{"type":"email","to":"a@example.com"}'
