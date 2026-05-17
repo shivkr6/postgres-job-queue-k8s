@@ -16,6 +16,7 @@ For the local Kubernetes learning setup, see [`k8s/README.md`](k8s/README.md).
 - Go 1.25+
 - Docker
 - Docker Compose
+- kind and kubectl for the Kubernetes milestones
 
 ## Start Postgres
 
@@ -116,7 +117,9 @@ docker exec "postgres-job-queue" psql -U queue -d queue -c "\d jobs"
 
 ```text
 .
+|-- .dockerignore                  # Docker build context excludes
 |-- cmd/queue/main.go              # CLI entrypoint
+|-- Dockerfile                     # queue CLI container image
 |-- docker-compose.yml             # Local PostgreSQL service
 |-- internal/queue/queue.go         # Database wrapper
 |-- internal/queue/worker.go        # Worker placeholder
@@ -144,12 +147,11 @@ go run ./cmd/queue migrate
 
 ## Next Milestones
 
-Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1 and K2 are also complete.
+Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1, K2, and K3 are also complete.
 
 The recommended next path is:
 
 ```text
-K3: Container Image
 K4: Postgres In Kubernetes
 K5: Database URL Configuration
 K6: Migration Job

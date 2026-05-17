@@ -6,6 +6,7 @@ Completed Kubernetes milestones:
 
 - K1: create a local cluster and prove `kubectl` can talk to it
 - K2: create a project namespace
+- K3: build and load the local app image
 
 ## Requirements
 
@@ -135,9 +136,38 @@ Future project resources should be created in this namespace with:
 kubectl apply -n postgres-job-queue -f <manifest.yaml>
 ```
 
+## Container Image
+
+The Docker image is built from the project root `Dockerfile`.
+
+Build the local image:
+
+```bash
+docker build -t postgres-job-queue:dev .
+```
+
+Load it into the kind cluster:
+
+```bash
+kind load docker-image postgres-job-queue:dev --name queue
+```
+
+Verify the image exists inside the kind node:
+
+```bash
+docker exec "queue-control-plane" crictl images postgres-job-queue
+```
+
+Kubernetes manifests should use:
+
+```yaml
+image: postgres-job-queue:dev
+imagePullPolicy: IfNotPresent
+```
+
 ## Next Milestone
 
-Next is K3: build a Docker image containing the `queue` binary and load it into the kind cluster.
+Next is K4: run Postgres inside the kind cluster.
 
 ## Memory Box
 
@@ -145,4 +175,5 @@ Next is K3: build a Docker image containing the `queue` binary and load it into 
 kind creates the local Kubernetes cluster.
 kubectl talks to the selected cluster context.
 A Ready node means Kubernetes has a place to run containers.
+kind load docker-image copies a host Docker image into the kind node image store.
 ```
