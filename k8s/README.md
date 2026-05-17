@@ -8,6 +8,7 @@ Completed Kubernetes milestones:
 - K2: create a project namespace
 - K3: build and load the local app image
 - K4: run Postgres inside the kind cluster
+- K5: provide the app database URL through Kubernetes configuration
 
 ## Requirements
 
@@ -19,6 +20,7 @@ Completed Kubernetes milestones:
 
 ```text
 k8s/
+|-- app-secret.yaml
 |-- kind-config.yaml  # Local kind cluster configuration
 |-- namespace.yaml    # Project namespace
 |-- postgres-deployment.yaml
@@ -233,9 +235,72 @@ postgres://queue:queue@postgres:5432/queue?sslmode=disable
 
 In kind, this PVC is local learning storage inside the kind node. It survives Pod restarts, but deleting the kind cluster deletes the data.
 
+## Database URL Configuration
+
+K5 stores the app's in-cluster database URL in a Kubernetes Secret so Jobs and Deployments can receive the same connection string without hardcoding it in each manifest.
+
+The app Secret is defined in:
+
+```text
+k8s/app-secret.yaml
+```
+
+It stores:
+
+```text
+DATABASE_URL=postgres://queue:queue@postgres:5432/queue?sslmode=disable
+```
+
+Apply it with:
+
+```bash
+kubectl apply -n postgres-job-queue -f k8s/app-secret.yaml
+```
+
+Verify the Secret exists:
+
+```bash
+kubectl get secret queue-app -n postgres-job-queue
+```
+
+Future app Pods should import it with:
+
+```yaml
+envFrom:
+  - secretRef:
+      name: queue-app
+```
+
+To prove a temporary Pod receives `DATABASE_URL` from Kubernetes:
+
+```bash
+kubectl apply -n postgres-job-queue -f - <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: queue-env-check
+spec:
+  restartPolicy: Never
+  containers:
+    - name: queue
+      image: postgres-job-queue:dev
+      imagePullPolicy: IfNotPresent
+      envFrom:
+        - secretRef:
+            name: queue-app
+EOF
+```
+
+Then inspect and clean it up:
+
+```bash
+kubectl logs -n postgres-job-queue pod/queue-env-check
+kubectl delete pod -n postgres-job-queue queue-env-check
+```
+
 ## Next Milestone
 
-Next is K5: provide the app `DATABASE_URL` through Kubernetes configuration.
+Next is K6: run `queue migrate` as a Kubernetes Job.
 
 ## Memory Box
 
@@ -248,4 +313,5 @@ Deployment runs the Postgres container.
 PVC gives Postgres storage.
 Service gives Postgres a stable network name.
 Secret gives Postgres startup credentials.
+The app Secret gives queue Pods their in-cluster DATABASE_URL.
 ```

@@ -153,14 +153,14 @@ go run ./cmd/queue migrate
 
 ## Next Milestones
 
-Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1, K2, K3, and K4 are also complete.
+Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1, K2, K3, K4, and K5 are also complete.
 
 The recommended next path is:
 
 ```text
-K5: Database URL Configuration
 K6: Migration Job
 K7: Postgres StatefulSet
+K8: One-Off CLI Jobs
 ```
 
 This lets Kubernetes run the app functionality that already exists: `queue migrate`.
