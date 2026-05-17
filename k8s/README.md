@@ -9,6 +9,7 @@ Completed Kubernetes milestones:
 - K3: build and load the local app image
 - K4: run Postgres inside the kind cluster
 - K5: provide the app database URL through Kubernetes configuration
+- K6: run database migrations as a Kubernetes Job
 
 ## Requirements
 
@@ -22,6 +23,7 @@ Completed Kubernetes milestones:
 k8s/
 |-- app-secret.yaml
 |-- kind-config.yaml  # Local kind cluster configuration
+|-- migrate-job.yaml
 |-- namespace.yaml    # Project namespace
 |-- postgres-deployment.yaml
 |-- postgres-pvc.yaml
@@ -298,9 +300,87 @@ kubectl logs -n postgres-job-queue pod/queue-env-check
 kubectl delete pod -n postgres-job-queue queue-env-check
 ```
 
+## Migration Job
+
+K6 runs the app's database migration inside Kubernetes with a Job.
+
+The migration Job is defined in:
+
+```text
+k8s/migrate-job.yaml
+```
+
+It runs the app image with the `migrate` argument:
+
+```yaml
+image: postgres-job-queue:dev
+args:
+  - migrate
+```
+
+The image entrypoint is `/queue`, so the container command becomes:
+
+```bash
+/queue migrate
+```
+
+The Job imports the in-cluster database URL from the K5 app Secret:
+
+```yaml
+envFrom:
+  - secretRef:
+      name: queue-app
+```
+
+Apply the Job:
+
+```bash
+kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
+```
+
+Wait for it to complete:
+
+```bash
+kubectl wait -n postgres-job-queue --for=condition=complete job/queue-migrate --timeout=60s
+```
+
+Inspect the Job and its Pod:
+
+```bash
+kubectl get jobs -n postgres-job-queue
+kubectl get pods -n postgres-job-queue
+```
+
+Read the migration output:
+
+```bash
+kubectl logs -n postgres-job-queue job/queue-migrate
+```
+
+Expected output:
+
+```text
+migration complete
+```
+
+Verify the schema exists in Postgres:
+
+```bash
+kubectl exec -n postgres-job-queue deploy/postgres -- psql -U queue -d queue -c "\d jobs"
+```
+
+If you want to rerun the migration Job, delete the old Job first:
+
+```bash
+kubectl delete job -n postgres-job-queue queue-migrate
+kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
+```
+
+The migration SQL is safe to rerun because it uses `IF NOT EXISTS` for the schema objects created so far.
+
 ## Next Milestone
 
-Next is K6: run `queue migrate` as a Kubernetes Job.
+Next is K7: replace the learning Postgres Deployment with a StatefulSet.
 
 ## Memory Box
 
@@ -314,4 +394,6 @@ PVC gives Postgres storage.
 Service gives Postgres a stable network name.
 Secret gives Postgres startup credentials.
 The app Secret gives queue Pods their in-cluster DATABASE_URL.
+Job runs a command until it succeeds once.
+queue migrate is a good fit for a Job because it should finish instead of run forever.
 ```

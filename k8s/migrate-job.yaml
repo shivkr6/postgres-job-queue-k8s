@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: queue-migrate
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: queue-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: queue
+          image: postgres-job-queue:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - migrate
+          envFrom:
+            - secretRef:
+                name: queue-app
