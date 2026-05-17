@@ -147,7 +147,7 @@ Deployment: runs the postgres container
 Service: gives Postgres a stable DNS name
 ```
 
-Use a Deployment first. StatefulSet is useful later, but a Deployment is simpler while learning the core Kubernetes objects.
+Use a Deployment first. The StatefulSet switch comes in K7 after the basic in-cluster database path works.
 
 Use this service name for in-cluster connections:
 
@@ -254,7 +254,84 @@ Kubernetes Job = run this command until it succeeds once.
 queue migrate is a perfect Kubernetes Job.
 ```
 
-## Milestone K7: One-Off CLI Jobs
+## Milestone K7: Postgres StatefulSet
+
+Prerequisite: K4, K5, and K6 are complete.
+
+Goal: replace the learning Postgres Deployment with a StatefulSet before adding real queue data and workers.
+
+Why now:
+
+```text
+First prove the app can reach Postgres and run migrations.
+Then switch Postgres to the database-shaped Kubernetes object.
+Do this before seed/stats/workers so resetting local learning data is cheap.
+```
+
+Create:
+
+```text
+k8s/postgres-headless-service.yaml
+k8s/postgres-statefulset.yaml
+```
+
+Keep:
+
+```text
+k8s/postgres-service.yaml
+```
+
+Resources:
+
+```text
+Headless Service: gives StatefulSet pods stable DNS identities
+StatefulSet: keeps postgres-0 alive with a stable identity
+volumeClaimTemplates: gives postgres-0 its own stable PVC
+Service: keeps the app connection name as postgres
+```
+
+Use this split:
+
+```text
+postgres-headless: used by the StatefulSet for pod identity
+postgres: used by the app as the database hostname
+```
+
+The app database URL should stay:
+
+```text
+postgres://queue:queue@postgres:5432/queue?sslmode=disable
+```
+
+Apply:
+
+```bash
+kubectl delete deployment/postgres -n postgres-job-queue
+kubectl apply -n postgres-job-queue -f k8s/postgres-headless-service.yaml
+kubectl apply -n postgres-job-queue -f k8s/postgres-statefulset.yaml
+kubectl rollout status statefulset/postgres -n postgres-job-queue
+```
+
+Inspect:
+
+```bash
+kubectl get statefulsets -n postgres-job-queue
+kubectl get pods -n postgres-job-queue
+kubectl get pvc -n postgres-job-queue
+```
+
+If the switch creates a fresh local database, rerun K6 so the schema exists again.
+
+Done when `postgres-0` is `Running`, a StatefulSet exists, and Postgres has a per-pod PVC.
+
+Memory Box:
+
+```text
+Deployment asks: do I have enough copies?
+StatefulSet asks: do I have the right named copies with their own storage?
+```
+
+## Milestone K8: One-Off CLI Jobs
 
 Prerequisite: app Milestones 3 and 4 are complete.
 
@@ -290,7 +367,7 @@ kubectl logs -n postgres-job-queue job/queue-stats
 
 Done when jobs can be inserted and inspected from inside the cluster.
 
-## Milestone K8: Worker Deployment
+## Milestone K9: Worker Deployment
 
 Prerequisite: app Milestone 7 is complete.
 
@@ -340,7 +417,7 @@ Deployment = keep this long-running process alive.
 Job = run this command to completion.
 ```
 
-## Milestone K9: Kubernetes Scaling Test
+## Milestone K10: Kubernetes Scaling Test
 
 Prerequisite: app Milestones 5, 6, and 7 are complete.
 
@@ -372,7 +449,7 @@ kubectl logs -n postgres-job-queue job/queue-stats
 
 Done when scaling replicas increases throughput without duplicate processing.
 
-## Milestone K10: Health And Restart Behavior
+## Milestone K11: Health And Restart Behavior
 
 Goal: learn how Kubernetes reacts when containers fail.
 
@@ -400,7 +477,7 @@ workers continue processing after restart
 
 Done when worker pods can be killed and the system recovers.
 
-## Milestone K11: Stuck Job Recovery In Kubernetes
+## Milestone K12: Stuck Job Recovery In Kubernetes
 
 Prerequisite: app Milestone 9 is complete.
 
@@ -442,7 +519,7 @@ kubectl logs -n postgres-job-queue job/<recover-job-name>
 
 Done when abandoned `running` jobs are returned to the retry flow or marked dead.
 
-## Milestone K12: Full Cluster Verification
+## Milestone K13: Full Cluster Verification
 
 Prerequisite: app Milestone 10 is complete.
 
@@ -472,7 +549,7 @@ jobs eventually become done or dead
 
 Done when the local Docker Compose flow has a working Kubernetes equivalent.
 
-## Milestone K13: Cleanup And Repeatability
+## Milestone K14: Cleanup And Repeatability
 
 Goal: make the Kubernetes setup easy to recreate.
 

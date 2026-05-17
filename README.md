@@ -39,6 +39,12 @@ The default app database URL is:
 postgres://queue:queue@localhost:5432/queue?sslmode=disable
 ```
 
+Inside Kubernetes, the database URL will use the Postgres Service name instead of `localhost`:
+
+```text
+postgres://queue:queue@postgres:5432/queue?sslmode=disable
+```
+
 You can override it with:
 
 ```bash
@@ -147,14 +153,14 @@ go run ./cmd/queue migrate
 
 ## Next Milestones
 
-Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1, K2, and K3 are also complete.
+Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1, K2, K3, and K4 are also complete.
 
 The recommended next path is:
 
 ```text
-K4: Postgres In Kubernetes
 K5: Database URL Configuration
 K6: Migration Job
+K7: Postgres StatefulSet
 ```
 
 This lets Kubernetes run the app functionality that already exists: `queue migrate`.

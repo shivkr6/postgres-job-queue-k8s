@@ -7,6 +7,7 @@ Completed Kubernetes milestones:
 - K1: create a local cluster and prove `kubectl` can talk to it
 - K2: create a project namespace
 - K3: build and load the local app image
+- K4: run Postgres inside the kind cluster
 
 ## Requirements
 
@@ -20,6 +21,10 @@ Completed Kubernetes milestones:
 k8s/
 |-- kind-config.yaml  # Local kind cluster configuration
 |-- namespace.yaml    # Project namespace
+|-- postgres-deployment.yaml
+|-- postgres-pvc.yaml
+|-- postgres-secret.yaml
+|-- postgres-service.yaml
 `-- README.md         # Kubernetes setup notes
 ```
 
@@ -165,9 +170,72 @@ image: postgres-job-queue:dev
 imagePullPolicy: IfNotPresent
 ```
 
+## Postgres In Kubernetes
+
+K4 runs PostgreSQL inside the cluster so future app Pods can connect to the database through Kubernetes networking.
+
+The K4 resources are:
+
+```text
+Secret: stores POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB
+PersistentVolumeClaim: requests local learning storage for database files
+Deployment: runs one postgres:16-alpine container
+Service: gives Postgres a stable in-cluster DNS name
+```
+
+Apply the resources:
+
+```bash
+kubectl apply -n postgres-job-queue -f k8s/postgres-secret.yaml
+kubectl apply -n postgres-job-queue -f k8s/postgres-pvc.yaml
+kubectl apply -n postgres-job-queue -f k8s/postgres-deployment.yaml
+kubectl apply -n postgres-job-queue -f k8s/postgres-service.yaml
+```
+
+If the Pod cannot pull `postgres:16-alpine` because the kind node cannot reach Docker Hub, load the already-local image into kind:
+
+```bash
+kind load docker-image postgres:16-alpine --name queue
+kubectl delete pod -n postgres-job-queue -l app=postgres
+```
+
+Wait for the Deployment:
+
+```bash
+kubectl rollout status deployment/postgres -n postgres-job-queue
+```
+
+Inspect what Kubernetes created:
+
+```bash
+kubectl get pods -n postgres-job-queue
+kubectl get svc -n postgres-job-queue
+kubectl get pvc -n postgres-job-queue
+```
+
+Check the `queue` database login from inside the container:
+
+```bash
+kubectl exec -n postgres-job-queue deploy/postgres -- psql -U queue -d queue -c "select current_database(), current_user;"
+```
+
+Pods in the same namespace can reach Postgres with this host name:
+
+```text
+postgres
+```
+
+The in-cluster database URL will be:
+
+```text
+postgres://queue:queue@postgres:5432/queue?sslmode=disable
+```
+
+In kind, this PVC is local learning storage inside the kind node. It survives Pod restarts, but deleting the kind cluster deletes the data.
+
 ## Next Milestone
 
-Next is K4: run Postgres inside the kind cluster.
+Next is K5: provide the app `DATABASE_URL` through Kubernetes configuration.
 
 ## Memory Box
 
@@ -176,4 +244,8 @@ kind creates the local Kubernetes cluster.
 kubectl talks to the selected cluster context.
 A Ready node means Kubernetes has a place to run containers.
 kind load docker-image copies a host Docker image into the kind node image store.
+Deployment runs the Postgres container.
+PVC gives Postgres storage.
+Service gives Postgres a stable network name.
+Secret gives Postgres startup credentials.
 ```
