@@ -8,9 +8,16 @@ import (
 	"time"
 
 	"postgres-job-queue/internal/queue"
+	"postgres-job-queue/migrations"
 )
 
 func main() {
+	args := os.Args[1:]
+	if len(args) > 1 || (len(args) == 1 && args[0] != "migrate") {
+		fmt.Fprintln(os.Stderr, "usage: queue [migrate]")
+		os.Exit(2)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -27,6 +34,15 @@ func main() {
 
 	if err := waitForPostgres(ctx, db); err != nil {
 		log.Fatalf("ping postgres: %v", err)
+	}
+
+	if len(args) == 1 && args[0] == "migrate" {
+		if err := db.Migrate(ctx, migrations.CreateJobsSQL); err != nil {
+			log.Fatalf("migrate: %v", err)
+		}
+
+		fmt.Println("migration complete")
+		return
 	}
 
 	fmt.Println("queue CLI is ready")

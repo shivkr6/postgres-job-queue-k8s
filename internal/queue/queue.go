@@ -23,6 +23,11 @@ func (db *DB) Ping(ctx context.Context) error {
 	return db.pool.Ping(ctx)
 }
 
+func (db *DB) Migrate(ctx context.Context, migrationSQL string) error {
+	_, err := db.pool.Exec(ctx, migrationSQL)
+	return err
+}
+
 func (db *DB) Close() {
 	db.pool.Close()
 }
