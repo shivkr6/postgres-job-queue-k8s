@@ -499,9 +499,11 @@ kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "
 
 ## Next Milestone
 
-Next is app Milestone 3: add commands that insert jobs into the queue.
+App Milestone 3 is complete: the CLI can enqueue one job and seed many pending jobs.
 
-The next Kubernetes milestone is K8, after app Milestones 3 and 4 are complete.
+Next is app Milestone 4: add `queue stats` to inspect queue state counts.
+
+The next Kubernetes milestone is K8, after app Milestone 4 is complete.
 
 ## Memory Box
 
@@ -519,4 +521,5 @@ Job runs a command until it succeeds once.
 queue migrate is a good fit for a Job because it should finish instead of run forever.
 StatefulSet gives Postgres a stable Pod name and a per-pod PVC.
 The app still connects through the normal postgres Service.
+queue enqueue and queue seed insert pending jobs into the jobs table.
 ```

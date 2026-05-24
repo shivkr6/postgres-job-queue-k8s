@@ -6,8 +6,9 @@ The project currently implements:
 
 - Milestone 1: Go CLI skeleton and PostgreSQL connection check
 - Milestone 2: database migration for the queue schema
+- Milestone 3: enqueue and seed commands for inserting pending jobs
 
-Future milestones will add enqueueing, stats, job claiming, workers, retries, stuck-job recovery, and Kubernetes deployment.
+Future milestones will add stats, job claiming, workers, retries, stuck-job recovery, and Kubernetes deployment.
 
 For the local Kubernetes learning setup, see [`k8s/README.md`](k8s/README.md).
 
@@ -15,34 +16,22 @@ For the local Kubernetes learning setup, see [`k8s/README.md`](k8s/README.md).
 
 - Go 1.25+
 - Docker
-- Docker Compose
 - kind and kubectl for the Kubernetes milestones
 
-## Start Postgres
+## Database Target
 
-```bash
-docker compose up -d
-```
+The current learning path verifies the app against PostgreSQL inside the local kind cluster.
 
-This starts a local PostgreSQL container using:
-
-```text
-user: queue
-password: queue
-database: queue
-host port: 5432
-```
-
-The default app database URL is:
-
-```text
-postgres://queue:queue@localhost:5432/queue?sslmode=disable
-```
-
-Inside Kubernetes, the database URL will use the Postgres Service name instead of `localhost`:
+Inside Kubernetes, the database URL uses the Postgres Service name:
 
 ```text
 postgres://queue:queue@postgres:5432/queue?sslmode=disable
+```
+
+When running the CLI from the host machine instead of from a Kubernetes Pod, the default app database URL is:
+
+```text
+postgres://queue:queue@localhost:5432/queue?sslmode=disable
 ```
 
 You can override it with:
@@ -83,6 +72,22 @@ The migration creates:
 - `jobs_claimable_idx` for finding runnable jobs
 - `jobs_stuck_running_idx` for finding old running jobs during recovery
 
+## Enqueue Jobs
+
+Insert one job:
+
+```bash
+queue enqueue '{"type":"email","to":"a@example.com"}'
+```
+
+Insert many learning jobs:
+
+```bash
+queue seed --count=100
+```
+
+Both commands insert rows into `jobs` and rely on the database defaults to set `state = pending`.
+
 ## Queue Schema
 
 The `jobs` table stores both the job payload and the queue bookkeeping data.
@@ -113,10 +118,10 @@ dead
 
 ## Inspect The Database
 
-After running migrations, inspect the table with:
+In the Kubernetes learning cluster, inspect the table through the Postgres StatefulSet Pod:
 
 ```bash
-docker exec "postgres-job-queue" psql -U queue -d queue -c "\d jobs"
+kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "\d jobs"
 ```
 
 ## Project Structure
@@ -126,7 +131,7 @@ docker exec "postgres-job-queue" psql -U queue -d queue -c "\d jobs"
 |-- .dockerignore                  # Docker build context excludes
 |-- cmd/queue/main.go              # CLI entrypoint
 |-- Dockerfile                     # queue CLI container image
-|-- docker-compose.yml             # Local PostgreSQL service
+|-- docker-compose.yml             # Optional local PostgreSQL service
 |-- internal/queue/queue.go         # Database wrapper
 |-- internal/queue/worker.go        # Worker placeholder
 |-- k8s/                            # Kubernetes manifests and notes
@@ -149,30 +154,24 @@ go test ./...
 ```bash
 go run ./cmd/queue
 go run ./cmd/queue migrate
+go run ./cmd/queue enqueue '{"type":"email","to":"a@example.com"}'
+go run ./cmd/queue seed --count=100
 ```
 
 ## Next Milestones
 
-Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1 through K7 are also complete.
+Milestones 1 through 3 are complete. Kubernetes Milestones K1 through K7 are also complete.
 
 The recommended next path is:
 
 ```text
-App Milestone 3: enqueue jobs
 App Milestone 4: inspect queue stats
 K8: One-Off CLI Jobs
 ```
 
 K7 runs Postgres as a StatefulSet, which gives it a stable Pod identity and a per-pod PVC.
 
-Next, return to app Milestone 3, which will add commands to insert jobs:
-
-```bash
-queue enqueue '{"type":"email","to":"a@example.com"}'
-queue seed --count=100
-```
-
-Those commands will insert rows into `jobs` with `state = pending`.
+Next, app Milestone 4 will add `queue stats` to inspect how many jobs are in each state.
 
 ## License
 
