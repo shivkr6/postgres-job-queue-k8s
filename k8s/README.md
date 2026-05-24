@@ -10,6 +10,7 @@ Completed Kubernetes milestones:
 - K4: run Postgres inside the kind cluster
 - K5: provide the app database URL through Kubernetes configuration
 - K6: run database migrations as a Kubernetes Job
+- K7: run Postgres as a StatefulSet with per-pod storage
 
 ## Requirements
 
@@ -26,9 +27,11 @@ k8s/
 |-- migrate-job.yaml
 |-- namespace.yaml    # Project namespace
 |-- postgres-deployment.yaml
+|-- postgres-headless-service.yaml
 |-- postgres-pvc.yaml
 |-- postgres-secret.yaml
 |-- postgres-service.yaml
+|-- postgres-statefulset.yaml
 `-- README.md         # Kubernetes setup notes
 ```
 
@@ -378,9 +381,127 @@ kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
 
 The migration SQL is safe to rerun because it uses `IF NOT EXISTS` for the schema objects created so far.
 
+## Postgres StatefulSet
+
+K7 replaces the learning Postgres Deployment with a StatefulSet.
+
+Start with the problem:
+
+```text
+A Deployment is good at keeping the right number of matching Pods alive.
+A database also wants a stable Pod identity and storage that belongs to that identity.
+```
+
+With the old K4 setup, Postgres ran as one Deployment Pod and mounted one standalone PVC:
+
+```text
+Deployment/postgres -> Pod with a generated name -> PVC/postgres-data
+```
+
+That worked for learning the basic cluster path, but the storage was attached from the outside. A StatefulSet moves that relationship into the workload object:
+
+```text
+StatefulSet/postgres -> Pod/postgres-0 -> PVC/postgres-data-postgres-0
+```
+
+Memory Box:
+
+```text
+Deployment asks: do I have enough matching Pods?
+StatefulSet asks: do I have the right named Pods, in order, with their own storage?
+```
+
+K7 adds these files:
+
+```text
+k8s/postgres-headless-service.yaml
+k8s/postgres-statefulset.yaml
+```
+
+The headless Service is named `postgres-headless`:
+
+```yaml
+clusterIP: None
+```
+
+This service is for StatefulSet identity. It lets Kubernetes give the StatefulSet Pod a stable DNS identity such as:
+
+```text
+postgres-0.postgres-headless
+```
+
+The normal app-facing Service is still named `postgres`. Keep using it from app Pods:
+
+```text
+postgres://queue:queue@postgres:5432/queue?sslmode=disable
+```
+
+This split matters:
+
+```text
+postgres-headless: used by StatefulSet for stable Pod identity
+postgres: used by the app as the database hostname
+```
+
+To switch the local learning cluster from Deployment to StatefulSet, run these commands manually:
+
+```bash
+kubectl delete deployment/postgres -n postgres-job-queue
+kubectl wait -n postgres-job-queue --for=delete pod -l app=postgres --timeout=60s
+kubectl delete pvc/postgres-data -n postgres-job-queue
+kubectl apply -n postgres-job-queue -f k8s/postgres-headless-service.yaml
+kubectl apply -n postgres-job-queue -f k8s/postgres-statefulset.yaml
+kubectl rollout status statefulset/postgres -n postgres-job-queue
+```
+
+The old standalone PVC is deleted because this is a disposable local learning cluster. The StatefulSet will create a new per-pod PVC, usually named:
+
+```text
+postgres-data-postgres-0
+```
+
+Inspect what changed:
+
+```bash
+kubectl get statefulsets -n postgres-job-queue
+kubectl get pods -n postgres-job-queue
+kubectl get pvc -n postgres-job-queue
+```
+
+Expected shape:
+
+```text
+statefulset/postgres exists
+pod/postgres-0 is Running
+pvc/postgres-data-postgres-0 exists
+```
+
+Check the database login:
+
+```bash
+kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "select current_database(), current_user;"
+```
+
+Because the StatefulSet starts with fresh storage, the queue schema may be gone. Rerun the migration Job after the switch:
+
+```bash
+kubectl delete job -n postgres-job-queue queue-migrate
+kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
+kubectl wait -n postgres-job-queue --for=condition=complete job/queue-migrate --timeout=60s
+kubectl logs -n postgres-job-queue job/queue-migrate
+```
+
+Then verify the `jobs` table exists:
+
+```bash
+kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "\d jobs"
+```
+
 ## Next Milestone
 
-Next is K7: replace the learning Postgres Deployment with a StatefulSet.
+Next is app Milestone 3: add commands that insert jobs into the queue.
+
+The next Kubernetes milestone is K8, after app Milestones 3 and 4 are complete.
 
 ## Memory Box
 
@@ -396,4 +517,6 @@ Secret gives Postgres startup credentials.
 The app Secret gives queue Pods their in-cluster DATABASE_URL.
 Job runs a command until it succeeds once.
 queue migrate is a good fit for a Job because it should finish instead of run forever.
+StatefulSet gives Postgres a stable Pod name and a per-pod PVC.
+The app still connects through the normal postgres Service.
 ```

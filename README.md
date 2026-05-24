@@ -153,20 +153,19 @@ go run ./cmd/queue migrate
 
 ## Next Milestones
 
-Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1, K2, K3, K4, K5, and K6 are also complete.
+Milestone 1 and Milestone 2 are complete. Kubernetes Milestones K1 through K7 are also complete.
 
 The recommended next path is:
 
 ```text
-K7: Postgres StatefulSet
 App Milestone 3: enqueue jobs
 App Milestone 4: inspect queue stats
 K8: One-Off CLI Jobs
 ```
 
-K6 lets Kubernetes run the app functionality that already exists: `queue migrate`.
+K7 runs Postgres as a StatefulSet, which gives it a stable Pod identity and a per-pod PVC.
 
-After K7, return to app Milestone 3, which will add commands to insert jobs:
+Next, return to app Milestone 3, which will add commands to insert jobs:
 
 ```bash
 queue enqueue '{"type":"email","to":"a@example.com"}'
