@@ -7,8 +7,9 @@ The project currently implements:
 - Milestone 1: Go CLI skeleton and PostgreSQL connection check
 - Milestone 2: database migration for the queue schema
 - Milestone 3: enqueue and seed commands for inserting pending jobs
+- Milestone 4: stats command for inspecting queue state counts
 
-Future milestones will add stats, job claiming, workers, retries, stuck-job recovery, and Kubernetes deployment.
+Future milestones will add job claiming, workers, retries, stuck-job recovery, and Kubernetes deployment.
 
 For the local Kubernetes learning setup, see [`k8s/README.md`](k8s/README.md).
 
@@ -88,6 +89,26 @@ queue seed --count=100
 
 Both commands insert rows into `jobs` and rely on the database defaults to set `state = pending`.
 
+## Inspect Queue Stats
+
+Show how many jobs are in each queue state:
+
+```bash
+queue stats
+```
+
+Example output:
+
+```text
+pending: 100
+running: 0
+done: 0
+failed: 0
+dead: 0
+```
+
+The stats output includes every allowed job state, even when the count is zero.
+
 ## Queue Schema
 
 The `jobs` table stores both the job payload and the queue bookkeeping data.
@@ -156,22 +177,23 @@ go run ./cmd/queue
 go run ./cmd/queue migrate
 go run ./cmd/queue enqueue '{"type":"email","to":"a@example.com"}'
 go run ./cmd/queue seed --count=100
+go run ./cmd/queue stats
 ```
 
 ## Next Milestones
 
-Milestones 1 through 3 are complete. Kubernetes Milestones K1 through K7 are also complete.
+Milestones 1 through 4 are complete. Kubernetes Milestones K1 through K7 are also complete.
 
 The recommended next path is:
 
 ```text
-App Milestone 4: inspect queue stats
+App Milestone 5: claim one available job
 K8: One-Off CLI Jobs
 ```
 
 K7 runs Postgres as a StatefulSet, which gives it a stable Pod identity and a per-pod PVC.
 
-Next, app Milestone 4 will add `queue stats` to inspect how many jobs are in each state.
+Next, app Milestone 5 will add the job-claiming query that safely moves one available job into `running`.
 
 ## License
 

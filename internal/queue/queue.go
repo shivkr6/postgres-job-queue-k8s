@@ -15,6 +15,11 @@ type DB struct {
 	pool *pgxpool.Pool
 }
 
+type StateCount struct {
+	State string
+	Count int64
+}
+
 func Open(ctx context.Context, databaseURL string) (*DB, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
@@ -72,6 +77,35 @@ func (db *DB) Seed(ctx context.Context, count int) error {
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (db *DB) Stats(ctx context.Context) ([]StateCount, error) {
+	rows, err := db.pool.Query(ctx, `
+		SELECT states.state::text, count(jobs.id)
+		FROM unnest(enum_range(NULL::job_state)) AS states(state)
+		LEFT JOIN jobs ON jobs.state = states.state
+		GROUP BY states.state
+		ORDER BY array_position(enum_range(NULL::job_state), states.state)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query stats: %w", err)
+	}
+	defer rows.Close()
+
+	var counts []StateCount
+	for rows.Next() {
+		var count StateCount
+		if err := rows.Scan(&count.State, &count.Count); err != nil {
+			return nil, fmt.Errorf("scan stats: %w", err)
+		}
+
+		counts = append(counts, count)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read stats: %w", err)
+	}
+
+	return counts, nil
 }
 
 func (db *DB) Close() {

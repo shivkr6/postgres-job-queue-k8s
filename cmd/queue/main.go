@@ -62,6 +62,16 @@ func main() {
 
 		fmt.Printf("seeded %d jobs\n", cmd.count)
 		return
+	case "stats":
+		stats, err := db.Stats(ctx)
+		if err != nil {
+			log.Fatalf("stats: %v", err)
+		}
+
+		for _, count := range stats {
+			fmt.Printf("%s: %d\n", count.State, count.Count)
+		}
+		return
 	}
 
 	fmt.Println("queue CLI is ready")
@@ -86,6 +96,12 @@ func parseCommand(args []string) (command, error) {
 		}
 
 		return command{name: "migrate"}, nil
+	case "stats":
+		if len(args) != 1 {
+			return command{}, fmt.Errorf("stats does not accept extra arguments")
+		}
+
+		return command{name: "stats"}, nil
 	case "enqueue":
 		if len(args) != 2 {
 			return command{}, fmt.Errorf("enqueue requires exactly one JSON payload argument")
@@ -127,6 +143,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  queue migrate")
 	fmt.Fprintln(os.Stderr, "  queue enqueue '<json-payload>'")
 	fmt.Fprintln(os.Stderr, "  queue seed --count=N")
+	fmt.Fprintln(os.Stderr, "  queue stats")
 }
 
 func waitForPostgres(ctx context.Context, db *queue.DB) error {
