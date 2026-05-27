@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: queue-migrate
+  labels:
+    {{- include "postgres-job-queue.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "postgres-job-queue.labels" . | nindent 8 }}
+        {{- include "postgres-job-queue.migrateSelectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: queue
+          image: {{ printf "%s:%s" .Values.app.image.repository .Values.app.image.tag | quote }}
+          imagePullPolicy: {{ .Values.app.image.pullPolicy }}
+          args:
+            - migrate
+          envFrom:
+            - secretRef:
+                name: queue-app

@@ -1,6 +1,12 @@
 # Kubernetes Setup
 
-This directory contains the Kubernetes files for running the project in a local kind cluster.
+This directory now contains only the local kind cluster setup for the project.
+
+The Kubernetes app resources are managed by Helm from:
+
+```text
+charts/postgres-job-queue
+```
 
 Completed Kubernetes milestones:
 
@@ -11,28 +17,44 @@ Completed Kubernetes milestones:
 - K5: provide the app database URL through Kubernetes configuration
 - K6: run database migrations as a Kubernetes Job
 - K7: run Postgres as a StatefulSet with per-pod storage
+- K8: package the Kubernetes app resources with Helm
 
 ## Requirements
 
 - Docker
 - kind
 - kubectl
+- Helm
 
 ## Current Files
 
 ```text
 k8s/
-|-- app-secret.yaml
 |-- kind-config.yaml  # Local kind cluster configuration
-|-- migrate-job.yaml
-|-- namespace.yaml    # Project namespace
-|-- postgres-deployment.yaml
-|-- postgres-headless-service.yaml
-|-- postgres-pvc.yaml
-|-- postgres-secret.yaml
-|-- postgres-service.yaml
-|-- postgres-statefulset.yaml
 `-- README.md         # Kubernetes setup notes
+```
+
+Helm chart:
+
+```text
+charts/postgres-job-queue/
+|-- Chart.yaml
+|-- values.yaml
+`-- templates/
+    |-- _helpers.tpl
+    |-- app-secret.yaml
+    |-- migrate-job.yaml
+    |-- postgres-headless-service.yaml
+    |-- postgres-secret.yaml
+    |-- postgres-service.yaml
+    `-- postgres-statefulset.yaml
+```
+
+Memory Box:
+
+```text
+k8s/kind-config.yaml creates the local learning cluster.
+charts/postgres-job-queue is the source of truth for app Kubernetes resources.
 ```
 
 ## Create The Local Cluster
@@ -96,56 +118,12 @@ NAME                  STATUS   ROLES           VERSION
 queue-control-plane   Ready    control-plane   v1.35.0
 ```
 
-## Useful Commands
-
-List kind clusters:
+Useful cluster commands:
 
 ```bash
 kind get clusters
-```
-
-Switch `kubectl` back to this cluster:
-
-```bash
 kubectl config use-context kind-queue
-```
-
-Delete the whole local cluster:
-
-```bash
 kind delete cluster --name queue
-```
-
-## Project Namespace
-
-The project namespace is defined in:
-
-```text
-k8s/namespace.yaml
-```
-
-Apply it with:
-
-```bash
-kubectl apply -f k8s/namespace.yaml
-```
-
-Verify it with:
-
-```bash
-kubectl get namespace postgres-job-queue
-```
-
-Expected status:
-
-```text
-postgres-job-queue   Active
-```
-
-Future project resources should be created in this namespace with:
-
-```bash
-kubectl apply -n postgres-job-queue -f <manifest.yaml>
 ```
 
 ## Container Image
@@ -170,331 +148,137 @@ Verify the image exists inside the kind node:
 docker exec "queue-control-plane" crictl images postgres-job-queue
 ```
 
-Kubernetes manifests should use:
+The Helm chart defaults to:
 
 ```yaml
-image: postgres-job-queue:dev
-imagePullPolicy: IfNotPresent
+app:
+  image:
+    repository: postgres-job-queue
+    tag: dev
+    pullPolicy: IfNotPresent
 ```
 
-## Postgres In Kubernetes
-
-K4 runs PostgreSQL inside the cluster so future app Pods can connect to the database through Kubernetes networking.
-
-The K4 resources are:
-
-```text
-Secret: stores POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB
-PersistentVolumeClaim: requests local learning storage for database files
-Deployment: runs one postgres:16-alpine container
-Service: gives Postgres a stable in-cluster DNS name
-```
-
-Apply the resources:
-
-```bash
-kubectl apply -n postgres-job-queue -f k8s/postgres-secret.yaml
-kubectl apply -n postgres-job-queue -f k8s/postgres-pvc.yaml
-kubectl apply -n postgres-job-queue -f k8s/postgres-deployment.yaml
-kubectl apply -n postgres-job-queue -f k8s/postgres-service.yaml
-```
-
-If the Pod cannot pull `postgres:16-alpine` because the kind node cannot reach Docker Hub, load the already-local image into kind:
+If the Postgres image is already available locally and the kind node cannot pull from Docker Hub, load it too:
 
 ```bash
 kind load docker-image postgres:16-alpine --name queue
-kubectl delete pod -n postgres-job-queue -l app=postgres
 ```
 
-Wait for the Deployment:
+## Helm Chart
 
-```bash
-kubectl rollout status deployment/postgres -n postgres-job-queue
-```
+K8 packages the current Kubernetes app resources as a Helm chart.
 
-Inspect what Kubernetes created:
-
-```bash
-kubectl get pods -n postgres-job-queue
-kubectl get svc -n postgres-job-queue
-kubectl get pvc -n postgres-job-queue
-```
-
-Check the `queue` database login from inside the container:
-
-```bash
-kubectl exec -n postgres-job-queue deploy/postgres -- psql -U queue -d queue -c "select current_database(), current_user;"
-```
-
-Pods in the same namespace can reach Postgres with this host name:
+The chart renders:
 
 ```text
-postgres
+Secret/postgres
+Secret/queue-app
+Service/postgres
+Service/postgres-headless
+StatefulSet/postgres
+Job/queue-migrate
 ```
 
-The in-cluster database URL will be:
+The chart does not render a Namespace. Create the namespace outside the chart or let Helm create it during install with `--create-namespace`.
 
-```text
-postgres://queue:queue@postgres:5432/queue?sslmode=disable
-```
-
-In kind, this PVC is local learning storage inside the kind node. It survives Pod restarts, but deleting the kind cluster deletes the data.
-
-## Database URL Configuration
-
-K5 stores the app's in-cluster database URL in a Kubernetes Secret so Jobs and Deployments can receive the same connection string without hardcoding it in each manifest.
-
-The app Secret is defined in:
-
-```text
-k8s/app-secret.yaml
-```
-
-It stores:
-
-```text
-DATABASE_URL=postgres://queue:queue@postgres:5432/queue?sslmode=disable
-```
-
-Apply it with:
+Render the chart without installing it:
 
 ```bash
-kubectl apply -n postgres-job-queue -f k8s/app-secret.yaml
+helm lint ./charts/postgres-job-queue
+helm template queue ./charts/postgres-job-queue > /tmp/queue-rendered.yaml
 ```
 
-Verify the Secret exists:
+Validate the rendered Kubernetes manifests:
 
 ```bash
-kubectl get secret queue-app -n postgres-job-queue
+kubectl apply --dry-run=client -f /tmp/queue-rendered.yaml
 ```
 
-Future app Pods should import it with:
-
-```yaml
-envFrom:
-  - secretRef:
-      name: queue-app
-```
-
-To prove a temporary Pod receives `DATABASE_URL` from Kubernetes:
+Install into the project namespace:
 
 ```bash
-kubectl apply -n postgres-job-queue -f - <<'EOF'
-apiVersion: v1
-kind: Pod
-metadata:
-  name: queue-env-check
-spec:
-  restartPolicy: Never
-  containers:
-    - name: queue
-      image: postgres-job-queue:dev
-      imagePullPolicy: IfNotPresent
-      envFrom:
-        - secretRef:
-            name: queue-app
-EOF
+helm install queue ./charts/postgres-job-queue --namespace postgres-job-queue --create-namespace
 ```
 
-Then inspect and clean it up:
+If you want a clean test namespace, use:
 
 ```bash
-kubectl logs -n postgres-job-queue pod/queue-env-check
-kubectl delete pod -n postgres-job-queue queue-env-check
+helm install queue ./charts/postgres-job-queue --namespace postgres-job-queue-helm --create-namespace
 ```
 
-## Migration Job
-
-K6 runs the app's database migration inside Kubernetes with a Job.
-
-The migration Job is defined in:
-
-```text
-k8s/migrate-job.yaml
-```
-
-It runs the app image with the `migrate` argument:
-
-```yaml
-image: postgres-job-queue:dev
-args:
-  - migrate
-```
-
-The image entrypoint is `/queue`, so the container command becomes:
+Inspect the Helm release:
 
 ```bash
-/queue migrate
+helm list -n postgres-job-queue
+helm status queue -n postgres-job-queue
+helm get values queue -n postgres-job-queue
+helm get manifest queue -n postgres-job-queue
 ```
 
-The Job imports the in-cluster database URL from the K5 app Secret:
+If you installed into `postgres-job-queue-helm`, use that namespace in the commands above.
 
-```yaml
-envFrom:
-  - secretRef:
-      name: queue-app
-```
-
-Apply the Job:
+Verify the Kubernetes resources:
 
 ```bash
-kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
-```
-
-Wait for it to complete:
-
-```bash
-kubectl wait -n postgres-job-queue --for=condition=complete job/queue-migrate --timeout=60s
-```
-
-Inspect the Job and its Pod:
-
-```bash
-kubectl get jobs -n postgres-job-queue
-kubectl get pods -n postgres-job-queue
-```
-
-Read the migration output:
-
-```bash
+kubectl get all,pvc -n postgres-job-queue
+kubectl rollout status statefulset/postgres -n postgres-job-queue
+kubectl wait -n postgres-job-queue --for=condition=complete job/queue-migrate --timeout=120s
 kubectl logs -n postgres-job-queue job/queue-migrate
+kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "\d jobs"
 ```
 
-Expected output:
+The migration Job can retry if it starts before Postgres accepts connections. That is normal for this learning chart as long as the Job eventually reaches `Complete`.
 
-```text
-migration complete
-```
-
-Verify the schema exists in Postgres:
+Practice an upgrade that changes the StatefulSet Pod template:
 
 ```bash
-kubectl exec -n postgres-job-queue deploy/postgres -- psql -U queue -d queue -c "\d jobs"
+helm upgrade queue ./charts/postgres-job-queue -n postgres-job-queue --set postgres.image.pullPolicy=Never
+kubectl rollout status statefulset/postgres -n postgres-job-queue
+helm history queue -n postgres-job-queue
 ```
 
-If you want to rerun the migration Job, delete the old Job first:
+Practice a rollback:
 
 ```bash
-kubectl delete job -n postgres-job-queue queue-migrate
-kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
+helm rollback queue 1 -n postgres-job-queue
+kubectl rollout status statefulset/postgres -n postgres-job-queue
+helm history queue -n postgres-job-queue
 ```
 
-The migration SQL is safe to rerun because it uses `IF NOT EXISTS` for the schema objects created so far.
+For local cleanup:
 
-## Postgres StatefulSet
-
-K7 replaces the learning Postgres Deployment with a StatefulSet.
-
-Start with the problem:
-
-```text
-A Deployment is good at keeping the right number of matching Pods alive.
-A database also wants a stable Pod identity and storage that belongs to that identity.
+```bash
+helm uninstall queue -n postgres-job-queue
+kubectl delete namespace postgres-job-queue
 ```
 
-With the old K4 setup, Postgres ran as one Deployment Pod and mounted one standalone PVC:
+## Debugging Split
 
-```text
-Deployment/postgres -> Pod with a generated name -> PVC/postgres-data
+Use Helm to inspect the release:
+
+```bash
+helm status queue -n postgres-job-queue
+helm get values queue -n postgres-job-queue
+helm get manifest queue -n postgres-job-queue
+helm history queue -n postgres-job-queue
 ```
 
-That worked for learning the basic cluster path, but the storage was attached from the outside. A StatefulSet moves that relationship into the workload object:
+Use Kubernetes to inspect what the cluster actually did:
 
-```text
-StatefulSet/postgres -> Pod/postgres-0 -> PVC/postgres-data-postgres-0
+```bash
+kubectl get pods -n postgres-job-queue
+kubectl describe pod -n postgres-job-queue postgres-0
+kubectl get events -n postgres-job-queue --sort-by=.lastTimestamp
+kubectl logs -n postgres-job-queue job/queue-migrate
 ```
 
 Memory Box:
 
 ```text
-Deployment asks: do I have enough matching Pods?
-StatefulSet asks: do I have the right named Pods, in order, with their own storage?
-```
-
-K7 adds these files:
-
-```text
-k8s/postgres-headless-service.yaml
-k8s/postgres-statefulset.yaml
-```
-
-The headless Service is named `postgres-headless`:
-
-```yaml
-clusterIP: None
-```
-
-This service is for StatefulSet identity. It lets Kubernetes give the StatefulSet Pod a stable DNS identity such as:
-
-```text
-postgres-0.postgres-headless
-```
-
-The normal app-facing Service is still named `postgres`. Keep using it from app Pods:
-
-```text
-postgres://queue:queue@postgres:5432/queue?sslmode=disable
-```
-
-This split matters:
-
-```text
-postgres-headless: used by StatefulSet for stable Pod identity
-postgres: used by the app as the database hostname
-```
-
-To switch the local learning cluster from Deployment to StatefulSet, run these commands manually:
-
-```bash
-kubectl delete deployment/postgres -n postgres-job-queue
-kubectl wait -n postgres-job-queue --for=delete pod -l app=postgres --timeout=60s
-kubectl delete pvc/postgres-data -n postgres-job-queue
-kubectl apply -n postgres-job-queue -f k8s/postgres-headless-service.yaml
-kubectl apply -n postgres-job-queue -f k8s/postgres-statefulset.yaml
-kubectl rollout status statefulset/postgres -n postgres-job-queue
-```
-
-The old standalone PVC is deleted because this is a disposable local learning cluster. The StatefulSet will create a new per-pod PVC, usually named:
-
-```text
-postgres-data-postgres-0
-```
-
-Inspect what changed:
-
-```bash
-kubectl get statefulsets -n postgres-job-queue
-kubectl get pods -n postgres-job-queue
-kubectl get pvc -n postgres-job-queue
-```
-
-Expected shape:
-
-```text
-statefulset/postgres exists
-pod/postgres-0 is Running
-pvc/postgres-data-postgres-0 exists
-```
-
-Check the database login:
-
-```bash
-kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "select current_database(), current_user;"
-```
-
-Because the StatefulSet starts with fresh storage, the queue schema may be gone. Rerun the migration Job after the switch:
-
-```bash
-kubectl delete job -n postgres-job-queue queue-migrate
-kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
-kubectl wait -n postgres-job-queue --for=condition=complete job/queue-migrate --timeout=60s
-kubectl logs -n postgres-job-queue job/queue-migrate
-```
-
-Then verify the `jobs` table exists:
-
-```bash
-kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "\d jobs"
+Helm renders Kubernetes YAML from chart templates and values.
+helm get manifest shows the YAML Helm installed.
+kubectl shows what the cluster actually did with that YAML.
+Production debugging needs both views.
 ```
 
 ## Next Milestone
@@ -503,24 +287,4 @@ App Milestone 4 is complete: the CLI can show queue state counts with `queue sta
 
 Next is app Milestone 5: add job claiming so one worker can safely take one available job.
 
-The next Kubernetes milestone is K8: One-Off CLI Jobs.
-
-## Memory Box
-
-```text
-kind creates the local Kubernetes cluster.
-kubectl talks to the selected cluster context.
-A Ready node means Kubernetes has a place to run containers.
-kind load docker-image copies a host Docker image into the kind node image store.
-Deployment runs the Postgres container.
-PVC gives Postgres storage.
-Service gives Postgres a stable network name.
-Secret gives Postgres startup credentials.
-The app Secret gives queue Pods their in-cluster DATABASE_URL.
-Job runs a command until it succeeds once.
-queue migrate is a good fit for a Job because it should finish instead of run forever.
-StatefulSet gives Postgres a stable Pod name and a per-pod PVC.
-The app still connects through the normal postgres Service.
-queue enqueue and queue seed insert pending jobs into the jobs table.
-queue stats shows counts for every job state, including states with zero jobs.
-```
+The next Kubernetes milestone is K9: One-Off CLI Jobs.

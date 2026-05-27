@@ -150,12 +150,13 @@ kubectl exec -n postgres-job-queue pod/postgres-0 -- psql -U queue -d queue -c "
 ```text
 .
 |-- .dockerignore                  # Docker build context excludes
+|-- charts/                         # Helm charts
 |-- cmd/queue/main.go              # CLI entrypoint
 |-- Dockerfile                     # queue CLI container image
 |-- docker-compose.yml             # Optional local PostgreSQL service
 |-- internal/queue/queue.go         # Database wrapper
 |-- internal/queue/worker.go        # Worker placeholder
-|-- k8s/                            # Kubernetes manifests and notes
+|-- k8s/                            # kind cluster config and Kubernetes notes
 |-- migrations/001_create_jobs.sql  # Queue schema migration
 |-- migrations/migrations.go        # Embedded migration SQL
 |-- milestones.md                   # App learning milestones
@@ -182,16 +183,18 @@ go run ./cmd/queue stats
 
 ## Next Milestones
 
-Milestones 1 through 4 are complete. Kubernetes Milestones K1 through K7 are also complete.
+Milestones 1 through 4 are complete. Kubernetes Milestones K1 through K8 are also complete.
 
 The recommended next path is:
 
 ```text
 App Milestone 5: claim one available job
-K8: One-Off CLI Jobs
+K9: One-Off CLI Jobs
 ```
 
 K7 runs Postgres as a StatefulSet, which gives it a stable Pod identity and a per-pod PVC.
+
+K8 packages the current Kubernetes resources as a Helm chart in `charts/postgres-job-queue`.
 
 Next, app Milestone 5 will add the job-claiming query that safely moves one available job into `running`.
 

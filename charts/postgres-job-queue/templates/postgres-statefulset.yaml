@@ -2,24 +2,27 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
+  labels:
+    {{- include "postgres-job-queue.labels" . | nindent 4 }}
 spec:
   serviceName: postgres-headless
   replicas: 1
   selector:
     matchLabels:
-      app: postgres
+      {{- include "postgres-job-queue.postgresSelectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: postgres
+        {{- include "postgres-job-queue.labels" . | nindent 8 }}
+        {{- include "postgres-job-queue.postgresSelectorLabels" . | nindent 8 }}
     spec:
       containers:
         - name: postgres
-          image: postgres:16-alpine
-          imagePullPolicy: IfNotPresent
+          image: {{ printf "%s:%s" .Values.postgres.image.repository .Values.postgres.image.tag | quote }}
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
           ports:
             - name: postgres
-              containerPort: 5432
+              containerPort: {{ .Values.postgres.service.port }}
           envFrom:
             - secretRef:
                 name: postgres
@@ -40,9 +43,11 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: postgres-data
+        labels:
+          {{- include "postgres-job-queue.labels" . | nindent 10 }}
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 1Gi
+            storage: {{ .Values.postgres.persistence.size | quote }}

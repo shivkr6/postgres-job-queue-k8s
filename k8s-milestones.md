@@ -4,6 +4,14 @@ This track runs alongside `milestones.md`.
 
 The app milestones teach the job queue itself. These Kubernetes milestones teach how to run that queue inside a local kind cluster.
 
+Current source-of-truth note:
+
+```text
+K2 through K7 were originally learned with raw Kubernetes YAML.
+After K8, the app Kubernetes resources live in the Helm chart under charts/postgres-job-queue.
+k8s/ now keeps only the local kind cluster config and Kubernetes notes.
+```
+
 Recommended timing:
 
 ```text
@@ -331,7 +339,130 @@ Deployment asks: do I have enough copies?
 StatefulSet asks: do I have the right named copies with their own storage?
 ```
 
-## Milestone K8: One-Off CLI Jobs
+## Milestone K8: Package The Current YAML With Helm
+
+Prerequisite: K1 through K7 are complete.
+
+Goal: learn Helm by converting the Kubernetes objects you already understand into a small chart.
+
+Why this detour is useful now:
+
+```text
+Production Kubernetes often uses Helm to install, upgrade, roll back, and inspect releases.
+Learning Helm now helps you understand how raw Kubernetes YAML becomes a managed release.
+```
+
+Important rule:
+
+```text
+Helm should not hide Kubernetes from you.
+The first chart should render almost the same objects as the existing YAML.
+```
+
+Create:
+
+```text
+charts/postgres-job-queue/Chart.yaml
+charts/postgres-job-queue/values.yaml
+charts/postgres-job-queue/templates/
+charts/postgres-job-queue/templates/_helpers.tpl
+```
+
+Move or copy the current resource shapes into `templates/`:
+
+```text
+postgres Secret
+app Secret
+postgres Service
+postgres Headless Service
+postgres StatefulSet
+migration Job
+```
+
+Start with a small `values.yaml`:
+
+```text
+app image repository and tag
+postgres image repository and tag
+database name
+database user
+database password
+database URL
+storage size
+```
+
+Do not template everything on the first pass. Template only values that you expect to change between environments.
+
+Render without installing:
+
+```bash
+helm template queue ./charts/postgres-job-queue
+```
+
+Compare the rendered manifests with the current YAML:
+
+```bash
+helm template queue ./charts/postgres-job-queue > /tmp/queue-rendered.yaml
+kubectl apply --dry-run=client -f /tmp/queue-rendered.yaml
+```
+
+Install into the local kind cluster:
+
+```bash
+helm install queue ./charts/postgres-job-queue --namespace postgres-job-queue --create-namespace
+```
+
+Inspect the release:
+
+```bash
+helm list -n postgres-job-queue
+helm status queue -n postgres-job-queue
+helm get values queue -n postgres-job-queue
+helm get manifest queue -n postgres-job-queue
+```
+
+Practice an upgrade:
+
+```bash
+helm upgrade queue ./charts/postgres-job-queue -n postgres-job-queue
+helm history queue -n postgres-job-queue
+```
+
+Practice a rollback:
+
+```bash
+helm rollback queue 1 -n postgres-job-queue
+```
+
+Useful debugging drills:
+
+```text
+change the app image tag to a missing image and inspect ImagePullBackOff
+change the database password and inspect failed startup or failed migration behavior
+change the storage size and inspect what Kubernetes accepts or rejects
+change a template label and inspect Service selector breakage
+delete a Helm-managed object manually and run helm upgrade again
+```
+
+Done when:
+
+```text
+helm template renders valid Kubernetes manifests
+helm install creates the working local cluster resources from the chart
+helm get manifest lets you inspect the YAML that Helm installed
+helm upgrade changes an installed release
+helm rollback restores an earlier release revision
+you can still explain every rendered Kubernetes object without relying on Helm magic
+```
+
+Memory Box:
+
+```text
+Helm is a release manager that renders Kubernetes YAML from templates and values.
+In production debugging, always check both sides: Helm release state and Kubernetes object state.
+```
+
+## Milestone K9: One-Off CLI Jobs
 
 Prerequisite: app Milestones 3 and 4 are complete.
 
@@ -344,30 +475,30 @@ queue seed --count=100
 queue stats
 ```
 
-Possible files:
+Possible chart templates:
 
 ```text
-k8s/seed-job.yaml
-k8s/stats-job.yaml
+charts/postgres-job-queue/templates/seed-job.yaml
+charts/postgres-job-queue/templates/stats-job.yaml
 ```
 
-Apply:
+Install or upgrade the release:
 
 ```bash
-kubectl apply -n postgres-job-queue -f k8s/seed-job.yaml
+helm upgrade --install queue ./charts/postgres-job-queue --namespace postgres-job-queue --create-namespace
 kubectl logs -n postgres-job-queue job/queue-seed
 ```
 
 For stats:
 
 ```bash
-kubectl apply -n postgres-job-queue -f k8s/stats-job.yaml
+helm upgrade queue ./charts/postgres-job-queue -n postgres-job-queue
 kubectl logs -n postgres-job-queue job/queue-stats
 ```
 
 Done when jobs can be inserted and inspected from inside the cluster.
 
-## Milestone K9: Worker Deployment
+## Milestone K10: Worker Deployment
 
 Prerequisite: app Milestone 7 is complete.
 
@@ -376,7 +507,7 @@ Goal: run workers continuously in the kind cluster.
 Create:
 
 ```text
-k8s/worker-deployment.yaml
+charts/postgres-job-queue/templates/worker-deployment.yaml
 ```
 
 The container should run:
@@ -389,10 +520,10 @@ Start with one worker process per pod.
 
 Scale with Kubernetes replicas instead of only using the app's `--workers` flag.
 
-Apply:
+Upgrade the release:
 
 ```bash
-kubectl apply -n postgres-job-queue -f k8s/worker-deployment.yaml
+helm upgrade queue ./charts/postgres-job-queue -n postgres-job-queue
 ```
 
 Scale:
@@ -417,7 +548,7 @@ Deployment = keep this long-running process alive.
 Job = run this command to completion.
 ```
 
-## Milestone K10: Kubernetes Scaling Test
+## Milestone K11: Kubernetes Scaling Test
 
 Prerequisite: app Milestones 5, 6, and 7 are complete.
 
@@ -443,13 +574,13 @@ Useful commands:
 ```bash
 kubectl get pods -n postgres-job-queue -w
 kubectl logs -n postgres-job-queue deployment/queue-worker --follow
-kubectl apply -n postgres-job-queue -f k8s/stats-job.yaml
+helm upgrade queue ./charts/postgres-job-queue -n postgres-job-queue
 kubectl logs -n postgres-job-queue job/queue-stats
 ```
 
 Done when scaling replicas increases throughput without duplicate processing.
 
-## Milestone K11: Health And Restart Behavior
+## Milestone K12: Health And Restart Behavior
 
 Goal: learn how Kubernetes reacts when containers fail.
 
@@ -477,7 +608,7 @@ workers continue processing after restart
 
 Done when worker pods can be killed and the system recovers.
 
-## Milestone K12: Stuck Job Recovery In Kubernetes
+## Milestone K13: Stuck Job Recovery In Kubernetes
 
 Prerequisite: app Milestone 9 is complete.
 
@@ -500,7 +631,7 @@ Start with Option C: CronJob
 Create:
 
 ```text
-k8s/recover-cronjob.yaml
+charts/postgres-job-queue/templates/recover-cronjob.yaml
 ```
 
 The CronJob should run:
@@ -519,7 +650,7 @@ kubectl logs -n postgres-job-queue job/<recover-job-name>
 
 Done when abandoned `running` jobs are returned to the retry flow or marked dead.
 
-## Milestone K13: Full Cluster Verification
+## Milestone K14: Full Cluster Verification
 
 Prerequisite: app Milestone 10 is complete.
 
@@ -528,11 +659,9 @@ Goal: prove the full queue works inside Kubernetes.
 Run the whole flow inside the cluster:
 
 ```bash
-kubectl apply -n postgres-job-queue -f k8s/migrate-job.yaml
-kubectl apply -n postgres-job-queue -f k8s/seed-job.yaml
-kubectl apply -n postgres-job-queue -f k8s/worker-deployment.yaml
+helm upgrade --install queue ./charts/postgres-job-queue --namespace postgres-job-queue --create-namespace
 kubectl scale deployment/queue-worker -n postgres-job-queue --replicas=5
-kubectl apply -n postgres-job-queue -f k8s/stats-job.yaml
+kubectl logs -n postgres-job-queue job/queue-stats
 ```
 
 Verify:
@@ -549,7 +678,7 @@ jobs eventually become done or dead
 
 Done when the local Docker Compose flow has a working Kubernetes equivalent.
 
-## Milestone K14: Cleanup And Repeatability
+## Milestone K15: Cleanup And Repeatability
 
 Goal: make the Kubernetes setup easy to recreate.
 
@@ -564,7 +693,7 @@ Document:
 ```text
 how to create the cluster
 how to build and load the image
-how to apply manifests
+how to render and install the Helm chart
 how to run migrations
 how to seed jobs
 how to start workers
@@ -591,7 +720,6 @@ Done when the whole Kubernetes environment can be deleted and recreated from doc
 After the local Kubernetes version works, explore production-shaped improvements:
 
 ```text
-Helm chart
 Kustomize overlays
 external managed Postgres instead of in-cluster Postgres
 HorizontalPodAutoscaler
